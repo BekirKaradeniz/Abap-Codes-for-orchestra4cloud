@@ -1,0 +1,37 @@
+Field types that are used in Orchestra web and mobile screens;
+
+"TextBox": used to add textboxes,
+
+"TextArea": used to add text areas,
+
+"Date": used to add date fields,
+
+"CheckBox": used to add check boxes,
+
+"DropDown": used to add select fields,
+
+"MultipleDropDown": used to add multiple selects,
+
+"HTMLText": used to add html text,
+
+"MonthCalendar": used to add monthly calendars,
+
+"Button": used to add buttons,
+
+"H1": used to dd header 1 fields,
+
+"H2": used to dd header 2 fields,
+
+"H3": used to dd header 3 fields,
+
+"p": used to add paragraphs,
+
+"HR": used to draw horizontal lines,
+
+"FileUpload": used to add file upload fields,
+
+"Tab": used to add tabs,
+
+
+
+
