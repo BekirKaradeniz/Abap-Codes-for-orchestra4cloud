@@ -1,0 +1,231 @@
+  METHOD if_http_extension~handle_request.
+
+    DATA: master_data	      TYPE TABLE OF	pprop,
+          master_data_str   TYPE pprop,
+          modified_keys	    TYPE TABLE OF	pskey,
+          modified_keys_str TYPE pskey.
+
+    DATA: return  TYPE bapireturn,
+          return1 TYPE bapireturn1.
+
+    "Variables
+    DATA : lo_action TYPE string.
+    DATA : lv_request_body TYPE string.
+    DATA : lo_json_deserializer TYPE REF TO cl_trex_json_deserializer.
+    DATA : l_json TYPE string.
+    DATA : lo_json_serializer TYPE REF TO cl_trex_json_serializer.
+
+    DATA : l_json1 TYPE string,
+           l_json2 TYPE string,
+           l_json3 TYPE string.
+
+    DATA : l_tab1 TYPE string,
+           l_tab2 TYPE string.
+
+    DATA : l1 TYPE xstring VALUE '0A00',
+           l3 TYPE xstring VALUE '0900',
+           l5 TYPE xstring VALUE '0D00',
+           l2 TYPE string,
+           l4 TYPE string,
+           l6 TYPE string.
+
+  "Std model for screen interaction in Orchestra4cloud.com
+    TYPES: BEGIN OF orcscreencommand,
+             command   TYPE string,
+             fieldname TYPE string,
+             data      TYPE string,
+           END OF orcscreencommand.
+
+    DATA: omodel_str  TYPE orcscreencommand.
+    DATA: omodel      TYPE TABLE OF orcscreencommand.
+
+    DEFINE read_values .
+      CLEAR : omodel_str , &3 .
+      READ TABLE omodel INTO omodel_str WITH KEY command = &1 fieldname = &2.
+      IF sy-subrc = 0 .&3 = omodel_str-data.ENDIF .
+
+    END-OF-DEFINITION .
+    DEFINE set_values .
+      CLEAR : omodel_str .
+      READ TABLE omodel INTO omodel_str WITH KEY command = &1 fieldname = &2.
+      IF sy-subrc = 0 .omodel_str-data = &3 .MODIFY omodel FROM omodel_str INDEX sy-tabix .ENDIF .
+
+    END-OF-DEFINITION .
+
+    lo_action = server->request->get_header_field( name = '~request_method' ).
+    IF lo_action NE 'POST'.
+      CALL METHOD server->response->set_status( code = '405' reason = 'Hata!' ).
+    ENDIF.
+
+    CALL FUNCTION 'HR_KR_XSTRING_TO_STRING'
+      EXPORTING
+        in_xstring = l1
+      IMPORTING
+        out_string = l2.
+
+    CALL FUNCTION 'HR_KR_XSTRING_TO_STRING'
+      EXPORTING
+        in_xstring = l3
+      IMPORTING
+        out_string = l4.
+
+    CALL FUNCTION 'HR_KR_XSTRING_TO_STRING'
+      EXPORTING
+        in_xstring = l5
+      IMPORTING
+        out_string = l6.
+
+    lv_request_body = server->request->get_cdata( )."Body okunur
+
+    REPLACE ALL OCCURRENCES OF l2(1) IN lv_request_body WITH space IN CHARACTER MODE.
+    REPLACE ALL OCCURRENCES OF l4(1) IN lv_request_body WITH space IN CHARACTER MODE.
+    REPLACE ALL OCCURRENCES OF l6(1) IN lv_request_body WITH space IN CHARACTER MODE.
+
+    REPLACE ALL OCCURRENCES OF '"Command"' IN lv_request_body WITH 'Command' IN CHARACTER MODE.
+    REPLACE ALL OCCURRENCES OF '"Fieldname"' IN lv_request_body WITH 'Fieldname' IN CHARACTER MODE.
+    REPLACE ALL OCCURRENCES OF '"Data"' IN lv_request_body WITH 'Data' IN CHARACTER MODE.
+
+    CREATE OBJECT lo_json_deserializer.
+    lo_json_deserializer->deserialize(
+      EXPORTING
+        json = lv_request_body
+      IMPORTING
+        abap = omodel ).
+
+    "COMMAND = Std, ORC standart fields
+    "COMMAND = FormData,
+
+    "Std için
+    "FIELDNAME    SY-PERNR  STD
+    "FIELDNAME    FORMNAME  STD
+    "FIELDNAME    TASKNAME  STD
+    "FIELDNAME    WIID      STD
+    "FIELDNAME    RETURN    STD
+    "FIELDNAME    MESSAGE   STD
+    "FIELDNAME    RESPPERNR STD
+
+    "FormData için
+    "FIELDNAME    PERNR
+    "FIELDNAME    AWART
+    "FIELDNAME    BEGDA
+    "FIELDNAME    ENDDA
+    "FIELDNAME    BEGUZ
+    "FIELDNAME    ENDUZ
+
+    DATA : gv_formname TYPE string,
+           gv_taskname TYPE string,
+           gv_pernr    TYPE persno,
+           gv_awart    TYPE awart,
+           gv_begda    TYPE begda,
+           gv_endda    TYPE endda,
+           gv_beguz    TYPE beguz,
+           gv_enduz    TYPE enduz.
+
+    read_values 'Std' 'Formname' gv_formname.
+    CHECK sy-subrc = 0 .
+
+    IF gv_formname = 'ZDEM_ABSENCE_REQUEST_FORM'.
+
+      read_values : 'Std'      'Taskname' gv_taskname ,
+                    'FormData' 'PERNR' gv_pernr,
+                    'FormData' 'AWART' gv_awart,
+                    'FormData' 'BEGDA' gv_begda,
+                    'FormData' 'ENDDA' gv_endda,
+                    'FormData' 'BEGUZ' gv_beguz,
+                    'FormData' 'ENDUZ' gv_enduz.
+
+      CASE gv_taskname .
+        WHEN 'DOSUBMIT' .  "Submit clicked
+          IF gv_begda LT sy-datum .
+            set_values : 'Std' 'Return' 'E' ,
+                         'Std' 'Message' 'You cannot request absence for earlier dates' .
+          ENDIF .
+          IF gv_endda LT gv_begda.
+            set_values : 'Std' 'Return' 'E' ,
+                         'Std' 'Message' 'Check dates on your form' .
+          ENDIF .
+          IF NOT gv_beguz IS INITIAL .
+            IF gv_begda = gv_endda AND gv_enduz <= gv_beguz .
+              set_values : 'Std' 'Return' 'E' ,
+                           'Std' 'Message' 'Check dates on your form' .
+
+            ENDIF .
+          ENDIF .
+
+          CREATE OBJECT lo_json_serializer
+            EXPORTING
+              data = omodel.
+
+          CALL METHOD lo_json_serializer->serialize.
+
+          CALL METHOD lo_json_serializer->get_data
+            RECEIVING
+              rval = l_json.
+
+          REPLACE ALL OCCURRENCES OF 'command'   IN l_json WITH '"Command"'  IN CHARACTER MODE.
+          REPLACE ALL OCCURRENCES OF 'fieldname' IN l_json WITH '"Fieldname"'  IN CHARACTER MODE.
+          REPLACE ALL OCCURRENCES OF 'data'      IN l_json WITH '"Data"'   IN CHARACTER MODE.
+
+
+        WHEN 'DOAPPROVE' .  "Approve clicked.
+          master_data_str-infty = '2001' .
+          master_data_str-fname = 'PERNR' . master_data_str-fval = gv_pernr.APPEND master_data_str TO master_data.
+          master_data_str-fname = 'BEGDA' . master_data_str-fval = gv_begda.APPEND master_data_str TO master_data.
+          master_data_str-fname = 'ENDDA' . master_data_str-fval = gv_endda.APPEND master_data_str TO master_data.
+          master_data_str-fname = 'AWART' . master_data_str-fval = gv_awart.APPEND master_data_str TO master_data.
+          master_data_str-fname = 'BEGUZ' . master_data_str-fval = gv_beguz.APPEND master_data_str TO master_data.
+          master_data_str-fname = 'ENDUZ' . master_data_str-fval = gv_enduz.APPEND master_data_str TO master_data.
+
+          CALL FUNCTION 'ZHRSP_ORC_MAINTAIN_MASTERDATA'
+            EXPORTING
+              pernr              = gv_pernr
+              actio              = 'INS'
+              begda              = gv_begda
+              endda              = gv_endda
+              subty              = gv_awart
+              dialog_mode        = '0'
+              luw_mode           = '1'
+              no_existence_check = ' '
+              no_enqueue         = ' '
+            IMPORTING
+              return             = return
+              return1            = return1
+            TABLES
+              proposed_values    = master_data
+              modified_keys      = modified_keys.
+
+          IF return-type = 'E' .
+            set_values : 'Std' 'Return' 'E' ,
+                         'Std' 'Message' return-message .
+          ELSE .
+            "set_proposed_values : 'Std' 'Return' 'S' .
+          ENDIF .
+
+          CREATE OBJECT lo_json_serializer
+            EXPORTING
+              data = omodel.
+
+          CALL METHOD lo_json_serializer->serialize.
+
+          CALL METHOD lo_json_serializer->get_data
+            RECEIVING
+              rval = l_json.
+
+          REPLACE ALL OCCURRENCES OF 'command'   IN l_json WITH '"Command"'  IN CHARACTER MODE.
+          REPLACE ALL OCCURRENCES OF 'fieldname' IN l_json WITH '"Fieldname"'  IN CHARACTER MODE.
+          REPLACE ALL OCCURRENCES OF 'data'      IN l_json WITH '"Data"'   IN CHARACTER MODE.
+
+      ENDCASE .
+    ENDIF .
+
+
+*Sets the content type of the response
+    CALL METHOD server->response->set_header_field(
+        name  = 'Content-Type'
+        value = 'application/json; charset=iso-8859-1' ).
+
+*Retruen the results to JSON format
+    CALL METHOD server->response->set_cdata( data = l_json ).
+
+
+  ENDMETHOD.
